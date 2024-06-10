@@ -1,8 +1,9 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { Options } from "../target/types/options";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import {createMint, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAccount, mintTo} from "@solana/spl-token";
+import { assert } from "chai";
 
 describe("options", () => {
   // Configure the client to use the local cluster.
@@ -42,9 +43,12 @@ describe("options", () => {
   };
   it("initialized", async () => {
     // Add your test here.
-    await program.methods.initialize().rpc();
+    await program.methods.initialize().accounts({
+      signer: wallet.publicKey,
+      programAuthority
+    }).rpc();
   });
-  it("creates option mint", async () => {
+  const createOption = async () => {
     const { mint: underlyingMint, tokenAccount: userUnderlyingTokenAccount } = await mintToken();
     const [underlyingTokenAccount] = PublicKey.findProgramAddressSync(
       [Buffer.from("underlying_token"), underlyingMint.toBuffer()],
@@ -57,7 +61,7 @@ describe("options", () => {
       program.programId,
     );
     const date = Date.now() + 1000000;
-    await program.methods.create(new anchor.BN(date), 200, 400 * 10 ** OPTION_DECIMALS).accounts({
+    const accounts = {
       signer: wallet.publicKey,
       underlyingMint,
       userUnderlyingTokenAccount,
@@ -66,7 +70,43 @@ describe("options", () => {
       userOptionTokenAccount,
       optionDataAccount,
       programAuthority,
-    }).rpc();
+    }
+    // for (const account in accounts) {
+    //   console.log(`${account}: ${accounts[account].toString()}`);
+    // }
+    await program.methods.create(new anchor.BN(date), new anchor.BN(200), new anchor.BN(400 * 10 ** OPTION_DECIMALS)).accounts(accounts).signers([optionMint]).rpc();
+    return {...accounts, date};
+  }
+  it("creates option mint", async () => {
+    const { optionDataAccount, date, underlyingMint } = await createOption();
     const optionData = await program.account.optionDataAccount.fetch(optionDataAccount);
+    console.log(optionData);
+    console.log(optionData.endTime.toNumber() === date);
+    assert(optionData.amountUnexercised.toNumber() === 400 * 10 ** OPTION_DECIMALS);
+    assert(optionData.strikePrice.toNumber() === 200);
+    assert(optionData.underlyingMint.equals(underlyingMint));
+    assert(optionData.creator.equals(wallet.publicKey));
+  });
+  it("lists multiple of same", async () => {
+    const {
+      optionDataAccount, underlyingMint, userUnderlyingTokenAccount, 
+      underlyingTokenAccount, optionMint, userOptionTokenAccount, } = await createOption();
+    const [programHolderAccount] = PublicKey.findProgramAddressSync(
+      [Buffer.from("holder_account"), optionMint.toBuffer()],
+      program.programId,
+    );
+    const [listAccount] = PublicKey.findProgramAddressSync(
+      [Buffer.from("listing"), optionMint.toBuffer(), wallet.publicKey.toBuffer(), Buffer.from(LAMPORTS_PER_SOL / 3)],
+      program.programId,
+    )
+    await program.methods.list(new anchor.BN(400), new anchor.BN(LAMPORTS_PER_SOL / 4)).accounts({
+      signer: wallet.publicKey,
+      optionMint,
+      userOptionTokenAccount,
+      optionDataAccount,
+      programHolderAccount,
+      listAccount,
+      programAuthority,
+    }).signers([]).rpc();
   });
 });

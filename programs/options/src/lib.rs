@@ -1,10 +1,9 @@
 
-
-
-use std::collections::HashMap;
-
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, Token, TokenAccount, transfer, Transfer, mint_to, MintTo};
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{Mint, Token, TokenAccount, transfer, Transfer, mint_to, MintTo}
+};
 
 declare_id!("BfrkttNPsNutRR3PKtsh8N2cN3EhkqXJWRwG5RSMU8AK");
 /* 
@@ -140,8 +139,8 @@ pub struct Create<'info> {
     #[account(
         init,
         payer = signer,
-        token::authority = signer,
-        token::mint = option_mint,
+        associated_token::mint = option_mint,
+        associated_token::authority = signer,
     )]
     pub user_option_token_account: Account<'info, TokenAccount>,
     #[account(
@@ -160,6 +159,7 @@ pub struct Create<'info> {
     pub program_authority: AccountInfo<'info>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
 }
 #[account]
 pub struct Listing {
@@ -187,8 +187,8 @@ pub struct List<'info> {
         payer = signer,
         seeds = [b"holder_account", option_mint.key().as_ref()],
         bump,
-        token::authority = program_authority,
-        token::mint = option_mint
+        associated_token::authority = program_authority,
+        associated_token::mint = option_mint
     )]
     pub program_holder_account: Account<'info, TokenAccount>,
     #[account(
@@ -207,6 +207,7 @@ pub struct List<'info> {
     pub program_authority: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
 }
 #[derive(Accounts)]
 pub struct Exercise<'info> {
