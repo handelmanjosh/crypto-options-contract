@@ -187,8 +187,8 @@ pub struct List<'info> {
         payer = signer,
         seeds = [b"holder_account", option_mint.key().as_ref()],
         bump,
-        associated_token::authority = program_authority,
-        associated_token::mint = option_mint
+        token::authority = program_authority,
+        token::mint = option_mint
     )]
     pub program_holder_account: Account<'info, TokenAccount>,
     #[account(
@@ -207,7 +207,6 @@ pub struct List<'info> {
     pub program_authority: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
 }
 #[derive(Accounts)]
 pub struct Exercise<'info> {
