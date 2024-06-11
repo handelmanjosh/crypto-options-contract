@@ -18,7 +18,6 @@ declare_id!("BfrkttNPsNutRR3PKtsh8N2cN3EhkqXJWRwG5RSMU8AK");
 const OPTION_MINT_DECIMALS: u8 = 6;
 #[program]
 pub mod options {
-
     use super::*;
     pub fn initialize(_ctx: Context<Initialize>) -> Result<()> {
         Ok(())
@@ -29,7 +28,7 @@ pub mod options {
     // should initialize an option token, set its data, and mint it to the user
     // if option token already exists, should mint it to the user
     // should take underlying token from the user and hold as collateral. 
-    pub fn create(ctx: Context<Create>, end_time: u64, strike_price: u64, amount: u64) -> Result<()> {
+    pub fn create(ctx: Context<Create>, end_time: u64, strike_price: u64, amount: u64, call: bool) -> Result<()> {
         // transfer underlying from user to token account
         transfer(
             CpiContext::new(
@@ -58,6 +57,7 @@ pub mod options {
         ctx.accounts.option_data_account.end_time = end_time;
         ctx.accounts.option_data_account.strike_price = strike_price;
         ctx.accounts.option_data_account.amount_unexercised = amount;
+        ctx.accounts.option_data_account.call = call;
         ctx.accounts.option_data_account.creator = ctx.accounts.signer.key();
         ctx.accounts.option_data_account.underlying_mint = ctx.accounts.underlying_mint.key();
         Ok(())
@@ -81,6 +81,37 @@ pub mod options {
         ctx.accounts.list_account.option_mint = ctx.accounts.option_mint.key();
         Ok(())
     }
+    pub fn buy(ctx: Context<Buy>, _price: u64, amount: u64) -> Result<()> {
+        let ix = anchor_lang::solana_program::system_instruction::transfer(
+            &ctx.accounts.signer.key(),
+            &ctx.accounts.owner.key(),
+            ctx.accounts.listing.price * amount,
+        );
+        anchor_lang::solana_program::program::invoke(
+            &ix,
+            &[
+                ctx.accounts.signer.to_account_info(),
+                ctx.accounts.owner.to_account_info(),
+            ],
+        )?;
+        match ctx.accounts.listing.amount.checked_sub(amount) {
+            None => return Err(CustomError::ListingEmpty.into()),
+            Some(_) => true,
+        };
+        transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.program_holder_account.to_account_info(),
+                    to: ctx.accounts.user_holder_account.to_account_info(),
+                    authority: ctx.accounts.program_authority.to_account_info(),
+                },
+                &[&[b"auth", &[ctx.bumps.program_authority]]]
+            ),
+            amount,
+        )?;
+        Ok(())
+    }
     pub fn exercise(ctx: Context<Exercise>) -> Result<()> {
         Ok(())
     }
@@ -90,7 +121,11 @@ pub enum CustomError {
     #[msg("Strike price not reached")]
     StrikePriceNotReached,
     #[msg("Token price not found")]
-    TokenPriceNotFound
+    TokenPriceNotFound,
+    #[msg("Listing empty")]
+    ListingEmpty,
+    #[msg("Wrong owner")]
+    WrongOwner,
 }
 #[account]
 pub struct OptionDataAccount {
@@ -99,6 +134,7 @@ pub struct OptionDataAccount {
     end_time: u64,
     strike_price: u64,
     amount_unexercised: u64,
+    call: bool,
 }
 
 #[derive(Accounts)]
@@ -151,7 +187,7 @@ pub struct Create<'info> {
         seeds = [b"option_data_account", option_mint.key().as_ref()],
         bump,
         payer = signer,
-        space = 8 + 32 + 32 + 8 + 8 + 8,
+        space = 8 + 32 + 32 + 8 + 8 + 8 + 1,
     )]
     pub option_data_account: Account<'info, OptionDataAccount>,
     #[account(
@@ -222,6 +258,37 @@ pub struct List<'info> {
         space = 8 + 32 + 32 + 32 + 8 + 8
     )]
     pub list_account: Account<'info, Listing>,
+    #[account(
+        seeds = [b"auth"],
+        bump,
+    )]
+    /// CHECK: 
+    pub program_authority: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+}
+#[derive(Accounts)]
+#[instruction(price: u64)]
+pub struct Buy<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+    pub option_mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub owner: AccountInfo<'info>,
+    #[account(
+        mut,
+        seeds = [b"listing", option_mint.key().as_ref(), owner.key().as_ref(), price.to_be_bytes().as_ref()],
+        bump,
+    )]
+    pub listing: Account<'info, Listing>,
+    #[account(
+        mut,
+        seeds = [b"holder_account", option_mint.key().as_ref()],
+        bump,
+    )]
+    pub program_holder_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub user_holder_account: Account<'info, TokenAccount>,
     #[account(
         seeds = [b"auth"],
         bump,
