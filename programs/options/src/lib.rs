@@ -23,6 +23,9 @@ pub mod options {
     pub fn initialize(_ctx: Context<Initialize>) -> Result<()> {
         Ok(())
     }
+    pub fn create_holder_account(_ctx: Context<CreateHolderAccount>) -> Result<()> {
+        Ok(())
+    }
     // should initialize an option token, set its data, and mint it to the user
     // if option token already exists, should mint it to the user
     // should take underlying token from the user and hold as collateral. 
@@ -170,6 +173,29 @@ pub struct Listing {
     price: u64,
 }
 #[derive(Accounts)]
+pub struct CreateHolderAccount<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+    pub option_mint: Account<'info, Mint>,
+    #[account(
+        seeds = [b"auth"],
+        bump,
+    )]
+    /// CHECK: 
+    pub program_authority: AccountInfo<'info>,
+    #[account(
+        init,
+        payer = signer,
+        seeds = [b"holder_account", option_mint.key().as_ref()],
+        bump,
+        token::authority = program_authority,
+        token::mint = option_mint
+    )]
+    pub program_holder_account: Account<'info, TokenAccount>,
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+}
+#[derive(Accounts)]
 #[instruction(amount: u64, price: u64)]
 pub struct List<'info> {
     #[account(mut)]
@@ -184,11 +210,8 @@ pub struct List<'info> {
     pub option_data_account: Account<'info, OptionDataAccount>,
     #[account(
         mut,
-        payer = signer,
         seeds = [b"holder_account", option_mint.key().as_ref()],
         bump,
-        token::authority = program_authority,
-        token::mint = option_mint
     )]
     pub program_holder_account: Account<'info, TokenAccount>,
     #[account(
