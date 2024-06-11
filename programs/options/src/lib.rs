@@ -274,6 +274,7 @@ pub struct Buy<'info> {
     pub signer: Signer<'info>,
     pub option_mint: Account<'info, Mint>,
     #[account(mut)]
+    /// CHECK: 
     pub owner: AccountInfo<'info>,
     #[account(
         mut,

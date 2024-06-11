@@ -74,7 +74,7 @@ describe("options", () => {
     // for (const account in accounts) {
     //   console.log(`${account}: ${accounts[account].toString()}`);
     // }
-    await program.methods.create(new anchor.BN(date), new anchor.BN(200), new anchor.BN(400 * 10 ** OPTION_DECIMALS)).accounts(accounts).signers([optionMint]).rpc();
+    await program.methods.create(new anchor.BN(date), new anchor.BN(200), new anchor.BN(400 * 10 ** OPTION_DECIMALS), false).accounts(accounts).signers([optionMint]).rpc();
     return {...accounts, date};
   }
   it("creates option mint", async () => {
@@ -85,6 +85,7 @@ describe("options", () => {
     assert(optionData.strikePrice.toNumber() === 200);
     assert(optionData.underlyingMint.equals(underlyingMint));
     assert(optionData.creator.equals(wallet.publicKey));
+    assert(optionData.call === false);
   });
   it("lists multiple of same", async () => {
     const {
@@ -134,5 +135,64 @@ describe("options", () => {
       const listAccountData = await program.account.listing.fetch(listAccount);
       assert(listAccountData.amount.toNumber() === 400 * (i+2))
     }
+  });
+  it("Buys successfully", async () => {
+    const {
+      optionDataAccount, underlyingMint, userUnderlyingTokenAccount, 
+      underlyingTokenAccount, optionMint, userOptionTokenAccount, } = await createOption();
+    const [programHolderAccount] = PublicKey.findProgramAddressSync(
+      [Buffer.from("holder_account"), optionMint.toBuffer()],
+      program.programId,
+    );
+    const price = new anchor.BN(1);
+    const [listAccount] = PublicKey.findProgramAddressSync(
+      [Buffer.from("listing"), optionMint.toBuffer(), wallet.publicKey.toBuffer(), price.toArrayLike(Buffer, "be", 8)],
+      program.programId,
+    );
+    await program.methods.createHolderAccount().accounts({
+      signer: wallet.publicKey,
+      optionMint,
+      programAuthority,
+      programHolderAccount,
+    }).rpc();
+    await program.methods.list(new anchor.BN(400), price).accounts({
+      signer: wallet.publicKey,
+      optionMint,
+      userOptionTokenAccount,
+      optionDataAccount,
+      programHolderAccount,
+      listAccount,
+      programAuthority,
+    }).rpc();
+    const listAccountData = await program.account.listing.fetch(listAccount);
+    const p = listAccountData.price;
+    const account = Keypair.generate();
+    const accountHolder = await getOrCreateAssociatedTokenAccount(
+      provider.connection, 
+      wallet.payer,
+      optionMint,
+      account.publicKey
+    )
+    await provider.connection.requestAirdrop(account.publicKey, LAMPORTS_PER_SOL);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    for (let i = 0; i < 3; i++) {
+      await program.methods.buy(p, new anchor.BN(1)).accounts({
+        signer: account.publicKey,
+        optionMint,
+        owner: wallet.publicKey,
+        listing: listAccount,
+        programHolderAccount,
+        userHolderAccount: accountHolder.address,
+        programAuthority,
+      }).signers([account]).rpc();
+      const accountHolderData = await getAccount(provider.connection, accountHolder.address);
+      assert(accountHolderData.amount === BigInt(i + 1));
+    }
+  });
+  it("exercises successfully", async () => {
+
+  });
+  it("claims successfuly after expiry", async () => {
+
   });
 });
