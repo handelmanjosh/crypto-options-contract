@@ -2,7 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { Options } from "../target/types/options";
 import { Keypair, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import {createMint, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAccount, mintTo} from "@solana/spl-token";
+import {createMint, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAccount, mintTo, getAccount} from "@solana/spl-token";
 import { assert } from "chai";
 
 describe("options", () => {
@@ -80,8 +80,7 @@ describe("options", () => {
   it("creates option mint", async () => {
     const { optionDataAccount, date, underlyingMint } = await createOption();
     const optionData = await program.account.optionDataAccount.fetch(optionDataAccount);
-    console.log(optionData);
-    console.log(optionData.endTime.toNumber() === date);
+    assert(optionData.endTime.toNumber() === date);
     assert(optionData.amountUnexercised.toNumber() === 400 * 10 ** OPTION_DECIMALS);
     assert(optionData.strikePrice.toNumber() === 200);
     assert(optionData.underlyingMint.equals(underlyingMint));
@@ -95,11 +94,15 @@ describe("options", () => {
       [Buffer.from("holder_account"), optionMint.toBuffer()],
       program.programId,
     );
+    const price = new anchor.BN(1);
     const [listAccount] = PublicKey.findProgramAddressSync(
-      [Buffer.from("listing"), optionMint.toBuffer(), wallet.publicKey.toBuffer(), Buffer.from(LAMPORTS_PER_SOL / 3)],
+      [Buffer.from("listing"), optionMint.toBuffer(), wallet.publicKey.toBuffer(), price.toArrayLike(Buffer, "be", 8)],
       program.programId,
-    )
-    await program.methods.list(new anchor.BN(400), new anchor.BN(LAMPORTS_PER_SOL / 4)).accounts({
+    );
+    const tokenAccount = await getAccount(provider.connection, userOptionTokenAccount);
+    console.log(tokenAccount.amount.toString());
+    console.log(tokenAccount.owner.toString(), wallet.publicKey.toString());
+    await program.methods.list(new anchor.BN(400), price).accounts({
       signer: wallet.publicKey,
       optionMint,
       userOptionTokenAccount,
@@ -107,6 +110,26 @@ describe("options", () => {
       programHolderAccount,
       listAccount,
       programAuthority,
-    }).signers([]).rpc();
+    }).rpc();
+
+    const listAccountData = await program.account.listing.fetch(listAccount);
+    assert(listAccountData.amount.toNumber() === 400, "wrong amount");
+    assert(listAccountData.optionMint.equals(optionMint), "wrong option mint");
+    assert(listAccountData.owner.equals(wallet.publicKey), "wrong owner");
+    assert(listAccountData.underlyingMint.equals(underlyingMint), "wrong underlying");
+    assert(listAccountData.price.toNumber() === price.toNumber(), "wrong price");
+    for (let i = 0; i < 3; i++) {
+      await program.methods.list(new anchor.BN(400), price).accounts({
+        signer: wallet.publicKey,
+        optionMint,
+        userOptionTokenAccount,
+        optionDataAccount,
+        programHolderAccount,
+        listAccount,
+        programAuthority,
+      }).rpc();
+      const listAccountData = await program.account.listing.fetch(listAccount);
+      assert(listAccountData.amount.toNumber() === 400 * (i+2))
+    }
   });
 });

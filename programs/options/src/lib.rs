@@ -170,7 +170,7 @@ pub struct Listing {
     price: u64,
 }
 #[derive(Accounts)]
-#[instruction(price: u64)]
+#[instruction(amount: u64, price: u64)]
 pub struct List<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -183,7 +183,7 @@ pub struct List<'info> {
     )]
     pub option_data_account: Account<'info, OptionDataAccount>,
     #[account(
-        init_if_needed,
+        mut,
         payer = signer,
         seeds = [b"holder_account", option_mint.key().as_ref()],
         bump,
@@ -194,7 +194,7 @@ pub struct List<'info> {
     #[account(
         init_if_needed,
         payer = signer,
-        seeds = [b"listing", option_mint.key().as_ref(), signer.key().as_ref(), price.to_le_bytes().as_ref()],
+        seeds = [b"listing", option_mint.key().as_ref(), signer.key().as_ref(), price.to_be_bytes().as_ref()],
         bump,
         space = 8 + 32 + 32 + 32 + 8 + 8
     )]
