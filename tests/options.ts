@@ -99,9 +99,12 @@ describe("options", () => {
       [Buffer.from("listing"), optionMint.toBuffer(), wallet.publicKey.toBuffer(), price.toArrayLike(Buffer, "be", 8)],
       program.programId,
     );
-    const tokenAccount = await getAccount(provider.connection, userOptionTokenAccount);
-    console.log(tokenAccount.amount.toString());
-    console.log(tokenAccount.owner.toString(), wallet.publicKey.toString());
+    await program.methods.createHolderAccount().accounts({
+      signer: wallet.publicKey,
+      optionMint,
+      programAuthority,
+      programHolderAccount,
+    }).rpc();
     await program.methods.list(new anchor.BN(400), price).accounts({
       signer: wallet.publicKey,
       optionMint,
