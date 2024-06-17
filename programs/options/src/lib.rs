@@ -300,21 +300,21 @@ pub mod options {
             **ctx.accounts.program_authority.try_borrow_mut_lamports()? -= transferred;
             **ctx.accounts.signer.try_borrow_mut_lamports()? += transferred;
         }
-        burn(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                Burn {
-                    mint: ctx.accounts.option_mint.to_account_info(),
-                    from: ctx.accounts.user_option_token_account.to_account_info(),
-                    authority: ctx.accounts.program_authority.to_account_info()
-                },
-                &[&[b"auth", &[ctx.bumps.program_authority]]]
-            ),
-            amount,
-        )?;
-        match ctx.accounts.option_data_account.amount_unexercised.checked_sub(amount) {
+        // burn(
+        //     CpiContext::new_with_signer(
+        //         ctx.accounts.token_program.to_account_info(),
+        //         Burn {
+        //             mint: ctx.accounts.option_mint.to_account_info(),
+        //             from: ctx.accounts.user_option_token_account.to_account_info(),
+        //             authority: ctx.accounts.program_authority.to_account_info()
+        //         },
+        //         &[&[b"auth", &[ctx.bumps.program_authority]]]
+        //     ),
+        //     amount,
+        // )?;
+        ctx.accounts.option_data_account.amount_unexercised = match ctx.accounts.option_data_account.amount_unexercised.checked_sub(amount) {
             None => return Err(CustomError::NotEnoughOptionToken.into()),
-            Some(_) => true        
+            Some(num) => num        
         };
         Ok(())
     }
@@ -435,6 +435,7 @@ pub struct Create<'info> {
     )]
     pub option_data_account: Account<'info, OptionDataAccount>,
     #[account(
+        mut,
         seeds = [b"auth"],
         bump
     )]
@@ -630,6 +631,7 @@ pub struct Exercise<'info> {
 pub struct Claim<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
+    pub underlying_mint: Account<'info, Mint>,
     pub option_mint: Account<'info, Mint>,
     #[account(
         mut,
@@ -640,7 +642,7 @@ pub struct Claim<'info> {
     pub option_data_account: Account<'info, OptionDataAccount>,
     #[account(
         mut,
-        seeds = [b"holder_account", option_mint.key().as_ref()],
+        seeds = [b"underlying_token", underlying_mint.key().as_ref()],
         bump,
     )]
     pub program_holder_account: Account<'info, TokenAccount>,

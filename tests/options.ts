@@ -48,7 +48,7 @@ describe("options", () => {
       programAuthority
     }).rpc();
   });
-  const createOption = async () => {
+  const createOption = async (call: boolean, resellable: boolean, dateChange: number = 1000000) => {
     const { mint: underlyingMint, tokenAccount: userUnderlyingTokenAccount } = await mintToken();
     const [underlyingTokenAccount] = PublicKey.findProgramAddressSync(
       [Buffer.from("underlying_token"), underlyingMint.toBuffer()],
@@ -60,7 +60,7 @@ describe("options", () => {
       [Buffer.from("option_data_account"), optionMint.publicKey.toBuffer()],
       program.programId,
     );
-    const date = Date.now() + 1000000;
+    const date = Math.floor(Date.now() / 1000 + dateChange);
     const accounts = {
       signer: wallet.publicKey,
       underlyingMint,
@@ -74,11 +74,11 @@ describe("options", () => {
     // for (const account in accounts) {
     //   console.log(`${account}: ${accounts[account].toString()}`);
     // }
-    await program.methods.create(new anchor.BN(date), new anchor.BN(200), new anchor.BN(400 * 10 ** OPTION_DECIMALS), false).accounts(accounts).signers([optionMint]).rpc();
+    await program.methods.create(new anchor.BN(date), new anchor.BN(200), new anchor.BN(400 * 10 ** OPTION_DECIMALS), call, resellable).accounts(accounts).signers([optionMint]).rpc();
     return {...accounts, date};
   }
   it("creates option mint", async () => {
-    const { optionDataAccount, date, underlyingMint } = await createOption();
+    const { optionDataAccount, date, underlyingMint } = await createOption(false, false);
     const optionData = await program.account.optionDataAccount.fetch(optionDataAccount);
     assert(optionData.endTime.toNumber() === date);
     assert(optionData.amountUnexercised.toNumber() === 400 * 10 ** OPTION_DECIMALS);
@@ -86,11 +86,22 @@ describe("options", () => {
     assert(optionData.underlyingMint.equals(underlyingMint));
     assert(optionData.creator.equals(wallet.publicKey));
     assert(optionData.call === false);
+
+    {
+      const { optionDataAccount, date, underlyingMint } = await createOption(true, false); 
+      const optionData = await program.account.optionDataAccount.fetch(optionDataAccount);
+      assert(optionData.endTime.toNumber() === date);
+      assert(optionData.amountUnexercised.toNumber() === 400 * 10 ** OPTION_DECIMALS);
+      assert(optionData.strikePrice.toNumber() === 200);
+      assert(optionData.underlyingMint.equals(underlyingMint));
+      assert(optionData.creator.equals(wallet.publicKey));
+      assert(optionData.call === true);
+    }
   });
   it("lists multiple of same", async () => {
     const {
       optionDataAccount, underlyingMint, userUnderlyingTokenAccount, 
-      underlyingTokenAccount, optionMint, userOptionTokenAccount, } = await createOption();
+      underlyingTokenAccount, optionMint, userOptionTokenAccount, } = await createOption(false, false);
     const [programHolderAccount] = PublicKey.findProgramAddressSync(
       [Buffer.from("holder_account"), optionMint.toBuffer()],
       program.programId,
@@ -137,9 +148,8 @@ describe("options", () => {
     }
   });
   it("Buys successfully", async () => {
-    const {
-      optionDataAccount, underlyingMint, userUnderlyingTokenAccount, 
-      underlyingTokenAccount, optionMint, userOptionTokenAccount, } = await createOption();
+    const { optionDataAccount, underlyingMint, userUnderlyingTokenAccount, 
+      underlyingTokenAccount, optionMint, userOptionTokenAccount, } = await createOption(false, false);
     const [programHolderAccount] = PublicKey.findProgramAddressSync(
       [Buffer.from("holder_account"), optionMint.toBuffer()],
       program.programId,
@@ -190,9 +200,72 @@ describe("options", () => {
     }
   });
   it("exercises successfully", async () => {
+    let { optionDataAccount, underlyingMint, userUnderlyingTokenAccount, 
+      underlyingTokenAccount, optionMint, userOptionTokenAccount } = await createOption(false, false);
+    
+    let optionDataBefore = await program.account.optionDataAccount.fetch(optionDataAccount);
+    await program.methods.exercise(new anchor.BN(10)).accounts({
+      signer: wallet.publicKey,
+      optionMint,
+      optionDataAccount,
+      underlyingTokenAccount,
+      userOptionTokenAccount,
+      creator: wallet.publicKey,
+      creatorTokenAccount: userUnderlyingTokenAccount,
+      userUnderlyingTokenAccount,
+      programAuthority,
+    }).rpc();
+    let optionDataAfter = await program.account.optionDataAccount.fetch(optionDataAccount);
+    assert(optionDataBefore.amountUnexercised.toNumber() === optionDataAfter.amountUnexercised.toNumber() + 10);
+    {
+      let { optionDataAccount, underlyingMint, userUnderlyingTokenAccount, 
+        underlyingTokenAccount, optionMint, userOptionTokenAccount } = await createOption(true, false);
+      
+      let optionDataBefore = await program.account.optionDataAccount.fetch(optionDataAccount);
+      await program.methods.exercise(new anchor.BN(10)).accounts({
+        signer: wallet.publicKey,
+        optionMint,
+        optionDataAccount,
+        underlyingTokenAccount,
+        userOptionTokenAccount,
+        creator: wallet.publicKey,
+        creatorTokenAccount: userUnderlyingTokenAccount,
+        userUnderlyingTokenAccount,
+        programAuthority,
+      }).rpc();
+      let optionDataAfter = await program.account.optionDataAccount.fetch(optionDataAccount);
+      assert(optionDataBefore.amountUnexercised.toNumber() === optionDataAfter.amountUnexercised.toNumber() + 10);
+    }
 
   });
-  it("claims successfuly after expiry", async () => {
-
+  it("claims successfully after expiry", async () => {
+    {
+      let { optionDataAccount, underlyingMint, userUnderlyingTokenAccount, 
+        underlyingTokenAccount, optionMint, userOptionTokenAccount } = await createOption(false, false, 1);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      await program.methods.claim().accounts({
+        signer: wallet.publicKey,
+        optionMint,
+        optionDataAccount,
+        underlyingMint,
+        programHolderAccount: underlyingTokenAccount,
+        userUnderlyingAccount: userUnderlyingTokenAccount,
+        programAuthority,
+      }).rpc();
+    }
+    {
+      let { optionDataAccount, underlyingMint, userUnderlyingTokenAccount, 
+        underlyingTokenAccount, optionMint, userOptionTokenAccount } = await createOption(true, false, 1);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await program.methods.claim().accounts({
+          signer: wallet.publicKey,
+          optionMint,
+          optionDataAccount,
+          underlyingMint,
+          programHolderAccount: underlyingTokenAccount,
+          userUnderlyingAccount: userUnderlyingTokenAccount,
+          programAuthority,
+        }).rpc();
+    }
   });
 });
