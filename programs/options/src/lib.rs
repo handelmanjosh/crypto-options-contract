@@ -47,17 +47,15 @@ pub mod options {
             )?;
         } else {
             // option is a put, user can sell token for strike_price, 
-            let ix = anchor_lang::solana_program::system_instruction::transfer(
-                &ctx.accounts.signer.key(),
-                &ctx.accounts.program_authority.key(),
+            anchor_lang::system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.signer.to_account_info(),
+                        to: ctx.accounts.program_authority.to_account_info(),
+                    }
+                ),
                 strike_price * amount,
-            );
-            anchor_lang::solana_program::program::invoke(
-                &ix,
-                &[
-                    ctx.accounts.signer.to_account_info(),
-                    ctx.accounts.program_authority.to_account_info(),
-                ],
             )?;
         }
         // mint option token to user
